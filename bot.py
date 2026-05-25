@@ -3,11 +3,11 @@ from telebot import types
 import sqlite3
 import os
 
-# ----------------- تنظیمات ربات -----------------
-API_TOKEN = 8820401544:AAGffl3-OmhYc0O7ptkWr_8ezTH9ejWXmpQ
-CHANNEL_ID = '@walle_trader
-CHANNEL_LINK =https://t.me/walle_trader# لینک کانال
-ADMIN_ID = 293076414                # 🛑 آیدی عددی تلگرام خودتان را اینجا وارد کنید
+# ----------------- دریافت تنظیمات از رندر (Environment Variables) -----------------
+API_TOKEN = os.getenv('API_TOKEN')
+CHANNEL_ID = os.getenv('CHANNEL_ID')      # آیدی کانال با @ مثل @my_channel
+CHANNEL_LINK = os.getenv('CHANNEL_LINK')  # لینک کامل کانال برای دکمه جوین
+ADMIN_ID = int(os.getenv('ADMIN_ID', 0))  # آیدی عددی شما تبدیل به عدد می‌شود
 
 bot = telebot.TeleBot(API_TOKEN)
 
@@ -17,7 +17,6 @@ DB_NAME = 'bot_database.db'
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # ساخت جدول کاربران در صورت عدم وجود
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -67,7 +66,6 @@ def get_all_users():
     conn.close()
     return users
 
-# مقداردهی اولیه دیتابیس
 init_db()
 
 # ----------------- متون ربات -----------------
@@ -131,12 +129,11 @@ def get_admin_keyboard():
 
 # ----------------- هندلرهای ربات -----------------
 
-# دستور استارت
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     username = message.from_user.username
-    add_user(user_id, username) # ذخیره کاربر در دیتابیس
+    add_user(user_id, username)
     
     bot.send_message(
         message.chat.id, 
@@ -144,7 +141,6 @@ def send_welcome(message):
         reply_markup=get_lang_keyboard()
     )
 
-# پنل مدیریت (فقط برای ادمین اصلی)
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id == ADMIN_ID:
@@ -152,12 +148,10 @@ def admin_panel(message):
     else:
         bot.send_message(message.chat.id, "❌ شما دسترسی به این بخش را ندارید.")
 
-# پردازش دکمه‌های اینلاین (Callback Queries)
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
     user_id = call.from_user.id
     
-    # انتخاب زبان
     if call.data.startswith("lang_"):
         lang = call.data.split("_")[1]
         update_user_lang(user_id, lang)
@@ -167,7 +161,6 @@ def callback_listener(call):
         else:
             bot.send_message(user_id, MESSAGES[lang]['welcome'], reply_markup=get_join_keyboard(lang))
             
-    # بررسی عضویت
     elif call.data == "check_join":
         lang = get_user_lang(user_id)
         if check_membership(user_id):
@@ -175,16 +168,14 @@ def callback_listener(call):
         else:
             bot.answer_callback_query(call.id, MESSAGES[lang]['not_joined'], show_alert=True)
 
-    # دکمه‌های بخش ادمین
     elif call.data == "admin_stats" and user_id == ADMIN_ID:
         total = get_bot_stats()
         bot.send_message(ADMIN_ID, f"📊 **آمار ربات شما:**\n\n👥 کل کاربران ثبت شده: {total} نفر")
         
     elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
-        msg = bot.send_message(ADMIN_ID, "📢 لطفاً پیام خود را ارسال کنید تا برای همه کاربران فرستاده شود (میتواند متن، عکس یا فیلم باشد):")
+        msg = bot.send_message(ADMIN_ID, "📢 لطفاً پیام خود را ارسال کنید (متن، عکس یا فیلم) یا برای لغو دستور `/cancel` را بفرستید:")
         bot.register_next_step_handler(msg, start_broadcasting)
 
-# تابع کمکی برای ارسال پیام همگانی به همه اعضای دیتابیس
 def start_broadcasting(message):
     if message.text == '/cancel':
         bot.send_message(ADMIN_ID, "❌ عملیات لغو شد.")
@@ -205,34 +196,27 @@ def start_broadcasting(message):
             
     bot.send_message(ADMIN_ID, f"📢 **گزارش ارسال همگانی:**\n\n✅ ارسال موفق: {success}\n❌ ناموفق (بلاک شده): {failed}")
 
-# هندلر پیام‌های متنی عمومی (جستجوی آهنگ و دکمه برگشت)
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
     user_id = message.chat.id
     lang = get_user_lang(user_id)
     
-    # بررسی عضویت اجباری
     if not check_membership(user_id):
         bot.send_message(user_id, MESSAGES[lang]['welcome'], reply_markup=get_join_keyboard(lang))
         return
 
-    # دکمه برگشت
     if message.text in [MESSAGES['FA']['back_btn'], MESSAGES['EN']['back_btn']]:
         bot.send_message(user_id, MESSAGES[lang]['main_menu'], reply_markup=get_main_keyboard(lang))
         bot.send_message(user_id, "🌐 Change Language / تغییر زبان:", reply_markup=get_lang_keyboard())
         return
 
-    # پردازش سرچ آهنگ
     query = message.text
     bot.send_message(user_id, MESSAGES[lang]['searching'].format(query))
     
-    # 🎵 این بخش دقیقاً جایی است که آهنگ آپلود می‌شود.
     try:
-        # کدهای مربوط به دانلودر شما در این بخش قرار خواهند گرفت.
         bot.send_message(user_id, f"🎵 Result for: {query}\n\n[این بخش آماده متصل شدن به سورس دانلودر شماست]")
     except Exception:
         bot.send_message(user_id, MESSAGES[lang]['not_found'])
 
-# روشن کردن ربات
 print("Professional Music Bot is running...")
 bot.infinity_polling()
