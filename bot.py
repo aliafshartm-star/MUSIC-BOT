@@ -1,16 +1,19 @@
-
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandStart
 from aiogram.enums import ChatMemberStatus
 import asyncio
 import yt_dlp
-import os
 import sqlite3
+import os
 
-TOKEN = "PUT_BOT_TOKEN_HERE"
-CHANNEL_USERNAME = "@YOUR_CHANNEL"
-ADMIN_ID = 123456789
+# ---------------- ENV VARIABLES ----------------
+
+TOKEN = os.getenv("TOKEN")
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+
+# ---------------- BOT ----------------
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
@@ -42,22 +45,54 @@ def language_keyboard():
 
 def join_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="عضویت در کانال", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")],
-        [InlineKeyboardButton(text="بررسی عضویت", callback_data="check_join")]
+        [InlineKeyboardButton(
+            text="عضویت در کانال",
+            url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"
+        )],
+        [InlineKeyboardButton(
+            text="بررسی عضویت",
+            callback_data="check_join"
+        )]
     ])
 
 def main_menu(lang):
+
     if lang == "fa":
+
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎵 دانلود آهنگ", callback_data="music")],
-            [InlineKeyboardButton(text="📚 راهنما", callback_data="help")],
-            [InlineKeyboardButton(text="🔙 بازگشت", callback_data="back")]
+            [InlineKeyboardButton(
+                text="🎵 دانلود آهنگ",
+                callback_data="music"
+            )],
+
+            [InlineKeyboardButton(
+                text="📚 راهنما",
+                callback_data="help"
+            )],
+
+            [InlineKeyboardButton(
+                text="🔙 بازگشت",
+                callback_data="back"
+            )]
         ])
+
     else:
+
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎵 Download Music", callback_data="music")],
-            [InlineKeyboardButton(text="📚 Help", callback_data="help")],
-            [InlineKeyboardButton(text="🔙 Back", callback_data="back")]
+            [InlineKeyboardButton(
+                text="🎵 Download Music",
+                callback_data="music"
+            )],
+
+            [InlineKeyboardButton(
+                text="📚 Help",
+                callback_data="help"
+            )],
+
+            [InlineKeyboardButton(
+                text="🔙 Back",
+                callback_data="back"
+            )]
         ])
 
 # ---------------- START ----------------
@@ -81,13 +116,16 @@ async def start(message: Message):
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def choose_lang(call: CallbackQuery):
+
     lang = call.data.split("_")[1]
+
     user_lang[call.from_user.id] = lang
 
     await call.message.edit_text(
         "برای استفاده باید عضو کانال شوید"
         if lang == "fa"
         else "You must join channel first",
+
         reply_markup=join_keyboard()
     )
 
@@ -99,6 +137,7 @@ async def check_join(call: CallbackQuery):
     lang = user_lang.get(call.from_user.id, "fa")
 
     try:
+
         member = await bot.get_chat_member(
             CHANNEL_USERNAME,
             call.from_user.id
@@ -114,6 +153,7 @@ async def check_join(call: CallbackQuery):
                 "به ربات خوش اومدی ❤️"
                 if lang == "fa"
                 else "Welcome ❤️",
+
                 reply_markup=main_menu(lang)
             )
 
@@ -121,10 +161,12 @@ async def check_join(call: CallbackQuery):
             raise Exception()
 
     except:
+
         await call.answer(
             "هنوز عضو کانال نشدی!"
             if lang == "fa"
             else "You are not joined!",
+
             show_alert=True
         )
 
@@ -137,8 +179,11 @@ async def help_menu(call: CallbackQuery):
 
     text = (
         "اسم خواننده و آهنگ را ارسال کن 🎵\n\nمثال:\nShadmehr - Taghdir"
+
         if lang == "fa"
+
         else
+
         "Send singer and song name 🎵\n\nExample:\nAdele - Hello"
     )
 
@@ -158,6 +203,7 @@ async def back_menu(call: CallbackQuery):
         "منوی اصلی"
         if lang == "fa"
         else "Main Menu",
+
         reply_markup=main_menu(lang)
     )
 
@@ -172,6 +218,7 @@ async def music_menu(call: CallbackQuery):
         "اسم آهنگ را ارسال کن 🎵"
         if lang == "fa"
         else "Send music name 🎵",
+
         reply_markup=main_menu(lang)
     )
 
@@ -219,7 +266,7 @@ async def download_music(message: Message):
 
         await wait.delete()
 
-    except Exception as e:
+    except Exception:
 
         await wait.edit_text(
             "خطا در دانلود آهنگ ❌"
@@ -246,7 +293,9 @@ async def stats(message: Message):
 # ---------------- RUN ----------------
 
 async def main():
+
     print("Bot Started...")
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
