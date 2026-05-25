@@ -1,302 +1,238 @@
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import CommandStart
-from aiogram.enums import ChatMemberStatus
-import asyncio
-import yt_dlp
+import telebot
+from telebot import types
 import sqlite3
 import os
 
-# ---------------- ENV VARIABLES ----------------
+# ----------------- تنظیمات ربات -----------------
+API_TOKEN = 'توکن_ربات_شما_اینجا'
+CHANNEL_ID = '@YourChannelID'       # آیدی کانال برای عضویت اجباری
+CHANNEL_LINK = 'https://t.me/YourChannelLink' # لینک کانال
+ADMIN_ID = 123456789                # 🛑 آیدی عددی تلگرام خودتان را اینجا وارد کنید
 
-TOKEN = os.getenv("TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+bot = telebot.TeleBot(API_TOKEN)
 
-# ---------------- BOT ----------------
+# ----------------- مدیریت دیتابیس (SQLite) -----------------
+DB_NAME = 'bot_database.db'
 
-bot = Bot(TOKEN)
-dp = Dispatcher()
-
-user_lang = {}
-
-# ---------------- DATABASE ----------------
-
-db = sqlite3.connect("users.db")
-cursor = db.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY
-)
-""")
-
-db.commit()
-
-# ---------------- KEYBOARDS ----------------
-
-def language_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="فارسی 🇮🇷", callback_data="lang_fa"),
-            InlineKeyboardButton(text="English 🇬🇧", callback_data="lang_en")
-        ]
-    ])
-
-def join_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="عضویت در کانال",
-            url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"
-        )],
-        [InlineKeyboardButton(
-            text="بررسی عضویت",
-            callback_data="check_join"
-        )]
-    ])
-
-def main_menu(lang):
-
-    if lang == "fa":
-
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🎵 دانلود آهنگ",
-                callback_data="music"
-            )],
-
-            [InlineKeyboardButton(
-                text="📚 راهنما",
-                callback_data="help"
-            )],
-
-            [InlineKeyboardButton(
-                text="🔙 بازگشت",
-                callback_data="back"
-            )]
-        ])
-
-    else:
-
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🎵 Download Music",
-                callback_data="music"
-            )],
-
-            [InlineKeyboardButton(
-                text="📚 Help",
-                callback_data="help"
-            )],
-
-            [InlineKeyboardButton(
-                text="🔙 Back",
-                callback_data="back"
-            )]
-        ])
-
-# ---------------- START ----------------
-
-@dp.message(CommandStart())
-async def start(message: Message):
-
-    cursor.execute(
-        "INSERT OR IGNORE INTO users (user_id) VALUES (?)",
-        (message.from_user.id,)
-    )
-
-    db.commit()
-
-    await message.answer(
-        "لطفا زبان را انتخاب کنید\nChoose your language",
-        reply_markup=language_keyboard()
-    )
-
-# ---------------- LANGUAGE ----------------
-
-@dp.callback_query(F.data.startswith("lang_"))
-async def choose_lang(call: CallbackQuery):
-
-    lang = call.data.split("_")[1]
-
-    user_lang[call.from_user.id] = lang
-
-    await call.message.edit_text(
-        "برای استفاده باید عضو کانال شوید"
-        if lang == "fa"
-        else "You must join channel first",
-
-        reply_markup=join_keyboard()
-    )
-
-# ---------------- CHECK JOIN ----------------
-
-@dp.callback_query(F.data == "check_join")
-async def check_join(call: CallbackQuery):
-
-    lang = user_lang.get(call.from_user.id, "fa")
-
-    try:
-
-        member = await bot.get_chat_member(
-            CHANNEL_USERNAME,
-            call.from_user.id
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # ساخت جدول کاربران در صورت عدم وجود
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            lang TEXT DEFAULT 'FA',
+            join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+    conn.commit()
+    conn.close()
 
-        if member.status in [
-            ChatMemberStatus.MEMBER,
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.CREATOR
-        ]:
+def add_user(user_id, username):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)', (user_id, username))
+    conn.commit()
+    conn.close()
 
-            await call.message.edit_text(
-                "به ربات خوش اومدی ❤️"
-                if lang == "fa"
-                else "Welcome ❤️",
+def update_user_lang(user_id, lang):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET lang = ? WHERE user_id = ?', (lang, user_id))
+    conn.commit()
+    conn.close()
 
-                reply_markup=main_menu(lang)
-            )
+def get_user_lang(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT lang FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else 'FA'
 
-        else:
-            raise Exception()
+def get_bot_stats():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM users')
+    total_users = cursor.fetchone()[0]
+    conn.close()
+    return total_users
 
-    except:
+def get_all_users():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM users')
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users
 
-        await call.answer(
-            "هنوز عضو کانال نشدی!"
-            if lang == "fa"
-            else "You are not joined!",
+# مقداردهی اولیه دیتابیس
+init_db()
 
-            show_alert=True
-        )
-
-# ---------------- HELP ----------------
-
-@dp.callback_query(F.data == "help")
-async def help_menu(call: CallbackQuery):
-
-    lang = user_lang.get(call.from_user.id, "fa")
-
-    text = (
-        "اسم خواننده و آهنگ را ارسال کن 🎵\n\nمثال:\nShadmehr - Taghdir"
-
-        if lang == "fa"
-
-        else
-
-        "Send singer and song name 🎵\n\nExample:\nAdele - Hello"
-    )
-
-    await call.message.edit_text(
-        text,
-        reply_markup=main_menu(lang)
-    )
-
-# ---------------- BACK ----------------
-
-@dp.callback_query(F.data == "back")
-async def back_menu(call: CallbackQuery):
-
-    lang = user_lang.get(call.from_user.id, "fa")
-
-    await call.message.edit_text(
-        "منوی اصلی"
-        if lang == "fa"
-        else "Main Menu",
-
-        reply_markup=main_menu(lang)
-    )
-
-# ---------------- MUSIC ----------------
-
-@dp.callback_query(F.data == "music")
-async def music_menu(call: CallbackQuery):
-
-    lang = user_lang.get(call.from_user.id, "fa")
-
-    await call.message.edit_text(
-        "اسم آهنگ را ارسال کن 🎵"
-        if lang == "fa"
-        else "Send music name 🎵",
-
-        reply_markup=main_menu(lang)
-    )
-
-# ---------------- DOWNLOAD ----------------
-
-@dp.message()
-async def download_music(message: Message):
-
-    query = message.text
-
-    lang = user_lang.get(message.from_user.id, "fa")
-
-    wait = await message.answer(
-        "درحال دانلود آهنگ..."
-        if lang == "fa"
-        else "Downloading..."
-    )
-
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': 'music.%(ext)s',
-        'quiet': True,
-        'noplaylist': True
+# ----------------- متون ربات -----------------
+MESSAGES = {
+    'FA': {
+        'welcome': "سلام! به ربات حرفه‌ای دانلود آهنگ خوش آمدید. لطفا ابتدا عضو کانال ما شوید تا ربات برای شما فعال شود.",
+        'join_btn': "📢 عضویت در کانال",
+        'check_join_btn': "✅ عضو شدم (بررسی مجدد)",
+        'not_joined': "❌ شما هنوز عضو کانال نشده‌اید! لطفاً ابتدا عضو شوید و سپس دکمه بررسی را بزنید.",
+        'search_prompt': "🎵 لطفا نام خواننده یا آهنگ مورد نظر خود را (فارسی یا انگلیسی) ارسال کنید:",
+        'back_btn': "🔙 برگشت به منوی اصلی",
+        'searching': "🔍 در حال جستجوی آهنگ «{}»... لطفا شکیبا باشید.",
+        'not_found': "😔 متأسفانه آهنگی یافت نشد.",
+        'main_menu': "🏠 به منوی اصلی برگشتید. چه کاری می‌توانم برایتان انجام دهم؟"
+    },
+    'EN': {
+        'welcome': "Hello! Welcome to the professional Music Downloader Bot. Please join our channel first to activate the bot.",
+        'join_btn': "📢 Join Channel",
+        'check_join_btn': "✅ I have joined",
+        'not_joined': "❌ You haven't joined the channel yet! Please join and try again.",
+        'search_prompt': "🎵 Please send the artist name or song title (English or Persian):",
+        'back_btn': "🔙 Back to Main Menu",
+        'searching': "🔍 Searching for '{}'... Please wait.",
+        'not_found': "😔 Sorry, no song was found.",
+        'main_menu': "🏠 Back to main menu. How can I help you?"
     }
+}
 
+# ----------------- توابع کمکی ربات -----------------
+def check_membership(user_id):
     try:
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
-            info = ydl.extract_info(
-                f"ytsearch1:{query}",
-                download=True
-            )
-
-            video = info['entries'][0]
-
-            filename = ydl.prepare_filename(video)
-
-        await message.answer_audio(
-            audio=open(filename, 'rb'),
-            title=video.get("title", "Music")
-        )
-
-        os.remove(filename)
-
-        await wait.delete()
-
+        member = bot.get_chat_member(CHANNEL_ID, user_id)
+        if member.status in ['creator', 'administrator', 'member']:
+            return True
+        return False
     except Exception:
+        return False
 
-        await wait.edit_text(
-            "خطا در دانلود آهنگ ❌"
-            if lang == "fa"
-            else "Error downloading music ❌"
-        )
+def get_lang_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("فارسی 🇮🇷", callback_data="lang_FA"),
+               types.InlineKeyboardButton("English 🇬🇧", callback_data="lang_EN"))
+    return markup
 
-# ---------------- STATS ----------------
+def get_join_keyboard(lang):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(MESSAGES[lang]['join_btn'], url=CHANNEL_LINK))
+    markup.add(types.InlineKeyboardButton(MESSAGES[lang]['check_join_btn'], callback_data="check_join"))
+    return markup
 
-@dp.message(F.text == "/stats")
-async def stats(message: Message):
+def get_main_keyboard(lang):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(types.KeyboardButton(MESSAGES[lang]['back_btn']))
+    return markup
 
-    if message.from_user.id != ADMIN_ID:
+def get_admin_keyboard():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📊 آمار کاربران", callback_data="admin_stats"))
+    markup.add(types.InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data="admin_broadcast"))
+    return markup
+
+# ----------------- هندلرهای ربات -----------------
+
+# دستور استارت
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    add_user(user_id, username) # ذخیره کاربر در دیتابیس
+    
+    bot.send_message(
+        message.chat.id, 
+        "🌐 لطفا زبان خود را انتخاب کنید / Please choose your language:", 
+        reply_markup=get_lang_keyboard()
+    )
+
+# پنل مدیریت (فقط برای ادمین اصلی)
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id == ADMIN_ID:
+        bot.send_message(message.chat.id, "🛠 به پنل مدیریت ربات خوش آمدید:", reply_markup=get_admin_keyboard())
+    else:
+        bot.send_message(message.chat.id, "❌ شما دسترسی به این بخش را ندارید.")
+
+# پردازش دکمه‌های اینلاین (Callback Queries)
+@bot.callback_query_handler(func=lambda call: True)
+def callback_listener(call):
+    user_id = call.from_user.id
+    
+    # انتخاب زبان
+    if call.data.startswith("lang_"):
+        lang = call.data.split("_")[1]
+        update_user_lang(user_id, lang)
+        
+        if check_membership(user_id):
+            bot.send_message(user_id, MESSAGES[lang]['search_prompt'], reply_markup=get_main_keyboard(lang))
+        else:
+            bot.send_message(user_id, MESSAGES[lang]['welcome'], reply_markup=get_join_keyboard(lang))
+            
+    # بررسی عضویت
+    elif call.data == "check_join":
+        lang = get_user_lang(user_id)
+        if check_membership(user_id):
+            bot.send_message(user_id, MESSAGES[lang]['search_prompt'], reply_markup=get_main_keyboard(lang))
+        else:
+            bot.answer_callback_query(call.id, MESSAGES[lang]['not_joined'], show_alert=True)
+
+    # دکمه‌های بخش ادمین
+    elif call.data == "admin_stats" and user_id == ADMIN_ID:
+        total = get_bot_stats()
+        bot.send_message(ADMIN_ID, f"📊 **آمار ربات شما:**\n\n👥 کل کاربران ثبت شده: {total} نفر")
+        
+    elif call.data == "admin_broadcast" and user_id == ADMIN_ID:
+        msg = bot.send_message(ADMIN_ID, "📢 لطفاً پیام خود را ارسال کنید تا برای همه کاربران فرستاده شود (میتواند متن، عکس یا فیلم باشد):")
+        bot.register_next_step_handler(msg, start_broadcasting)
+
+# تابع کمکی برای ارسال پیام همگانی به همه اعضای دیتابیس
+def start_broadcasting(message):
+    if message.text == '/cancel':
+        bot.send_message(ADMIN_ID, "❌ عملیات لغو شد.")
+        return
+    
+    users = get_all_users()
+    success = 0
+    failed = 0
+    
+    bot.send_message(ADMIN_ID, f"⏳ در حال ارسال پیام به {len(users)} کاربر... لطفا منتظر بمانید.")
+    
+    for u_id in users:
+        try:
+            bot.copy_message(chat_id=u_id, from_chat_id=ADMIN_ID, message_id=message.message_id)
+            success += 1
+        except Exception:
+            failed += 1
+            
+    bot.send_message(ADMIN_ID, f"📢 **گزارش ارسال همگانی:**\n\n✅ ارسال موفق: {success}\n❌ ناموفق (بلاک شده): {failed}")
+
+# هندلر پیام‌های متنی عمومی (جستجوی آهنگ و دکمه برگشت)
+@bot.message_handler(func=lambda message: True)
+def handle_text(message):
+    user_id = message.chat.id
+    lang = get_user_lang(user_id)
+    
+    # بررسی عضویت اجباری
+    if not check_membership(user_id):
+        bot.send_message(user_id, MESSAGES[lang]['welcome'], reply_markup=get_join_keyboard(lang))
         return
 
-    cursor.execute("SELECT COUNT(*) FROM users")
+    # دکمه برگشت
+    if message.text in [MESSAGES['FA']['back_btn'], MESSAGES['EN']['back_btn']]:
+        bot.send_message(user_id, MESSAGES[lang]['main_menu'], reply_markup=get_main_keyboard(lang))
+        bot.send_message(user_id, "🌐 Change Language / تغییر زبان:", reply_markup=get_lang_keyboard())
+        return
 
-    users = cursor.fetchone()[0]
+    # پردازش سرچ آهنگ
+    query = message.text
+    bot.send_message(user_id, MESSAGES[lang]['searching'].format(query))
+    
+    # 🎵 این بخش دقیقاً جایی است که آهنگ آپلود می‌شود.
+    try:
+        # کدهای مربوط به دانلودر شما در این بخش قرار خواهند گرفت.
+        bot.send_message(user_id, f"🎵 Result for: {query}\n\n[این بخش آماده متصل شدن به سورس دانلودر شماست]")
+    except Exception:
+        bot.send_message(user_id, MESSAGES[lang]['not_found'])
 
-    await message.answer(
-        f"👥 Total Users: {users}"
-    )
-
-# ---------------- RUN ----------------
-
-async def main():
-
-    print("Bot Started...")
-
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# روشن کردن ربات
+print("Professional Music Bot is running...")
+bot.infinity_polling()
