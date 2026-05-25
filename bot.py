@@ -4,10 +4,10 @@ import sqlite3
 import os
 
 # ----------------- تنظیمات ربات -----------------
-API_TOKEN = 'توکن_ربات_شما_اینجا'
-CHANNEL_ID = '@YourChannelID'       # آیدی کانال برای عضویت اجباری
-CHANNEL_LINK = 'https://t.me/YourChannelLink' # لینک کانال
-ADMIN_ID = 123456789                # 🛑 آیدی عددی تلگرام خودتان را اینجا وارد کنید
+API_TOKEN = 8820401544:AAGffl3-OmhYc0O7ptkWr_8ezTH9ejWXmpQ
+CHANNEL_ID = '@walle_trader
+CHANNEL_LINK =https://t.me/walle_trader# لینک کانال
+ADMIN_ID = 293076414                # 🛑 آیدی عددی تلگرام خودتان را اینجا وارد کنید
 
 bot = telebot.TeleBot(API_TOKEN)
 
