@@ -2,12 +2,30 @@ import telebot
 from telebot import types
 import sqlite3
 import os
+from flask import Flask
+from threading import Thread
 
-# ----------------- دریافت تنظیمات از رندر (Environment Variables) -----------------
+# ----------------- ایجاد یک سرور وب مجازی برای فریب دادن رندر -----------------
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive and running!"
+
+def run_flask():
+    # رندر پورت را به صورت خودکار در متغیر PORT قرار می‌دهد، اگر نبود روی 8080 می‌رود
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
+# ----------------- دریافت تنظیمات از رندر -----------------
 API_TOKEN = os.getenv('API_TOKEN')
-CHANNEL_ID = os.getenv('CHANNEL_ID')      # آیدی کانال با @ مثل @my_channel
-CHANNEL_LINK = os.getenv('CHANNEL_LINK')  # لینک کامل کانال برای دکمه جوین
-ADMIN_ID = int(os.getenv('ADMIN_ID', 0))  # آیدی عددی شما تبدیل به عدد می‌شود
+CHANNEL_ID = os.getenv('CHANNEL_ID')      
+CHANNEL_LINK = os.getenv('CHANNEL_LINK')  
+ADMIN_ID = int(os.getenv('ADMIN_ID', 0))  
 
 bot = telebot.TeleBot(API_TOKEN)
 
@@ -218,5 +236,8 @@ def handle_text(message):
     except Exception:
         bot.send_message(user_id, MESSAGES[lang]['not_found'])
 
-print("Professional Music Bot is running...")
-bot.infinity_polling()
+# 🚀 روشن کردن سرور وب مجازی و سپس پولینگ ربات
+if __name__ == "__main__":
+    keep_alive() # این تابع سایت فریب‌دهنده را روی پورت رندر روشن می‌کند
+    print("Professional Music Bot is running on Web Service...")
+    bot.infinity_polling()
