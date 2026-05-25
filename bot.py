@@ -4,8 +4,9 @@ import sqlite3
 import os
 from flask import Flask
 from threading import Thread
+import yt_dlp
 
-# ----------------- ایجاد یک سرور وب مجازی برای فریب دادن رندر -----------------
+# ----------------- ایجاد یک سرور وب مجازی برای رندر -----------------
 app = Flask('')
 
 @app.route('/')
@@ -13,7 +14,6 @@ def home():
     return "Bot is alive and running!"
 
 def run_flask():
-    # رندر پورت را به صورت خودکار در متغیر PORT قرار می‌دهد، اگر نبود روی 8080 می‌رود
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -95,9 +95,10 @@ MESSAGES = {
         'not_joined': "❌ شما هنوز عضو کانال نشده‌اید! لطفاً ابتدا عضو شوید و سپس دکمه بررسی را بزنید.",
         'search_prompt': "🎵 لطفا نام خواننده یا آهنگ مورد نظر خود را (فارسی یا انگلیسی) ارسال کنید:",
         'back_btn': "🔙 برگشت به منوی اصلی",
-        'searching': "🔍 در حال جستجوی آهنگ «{}»... لطفا شکیبا باشید.",
-        'not_found': "😔 متأسفانه آهنگی یافت نشد.",
-        'main_menu': "🏠 به منوی اصلی برگشتید. چه کاری می‌توانم برایتان انجام دهم؟"
+        'searching': "🔍 در حال جستجوی آهنگ «{}» در واش‌موزیک... لطفا کمی صبور باشید.",
+        'not_found': "😔 متأسفانه آهنگی یافت نشد یا در دانلود مشکلی پیش آمد.",
+        'main_menu': "🏠 به منوی اصلی برگشتید. چه کاری می‌توانم برایتان انجام دهم؟",
+        'uploading': "⚡ آهنگ پیدا شد! در حال آپلود و ارسال فایل صوتی..."
     },
     'EN': {
         'welcome': "Hello! Welcome to the professional Music Downloader Bot. Please join our channel first to activate the bot.",
@@ -107,8 +108,9 @@ MESSAGES = {
         'search_prompt': "🎵 Please send the artist name or song title (English or Persian):",
         'back_btn': "🔙 Back to Main Menu",
         'searching': "🔍 Searching for '{}'... Please wait.",
-        'not_found': "😔 Sorry, no song was found.",
-        'main_menu': "🏠 Back to main menu. How can I help you?"
+        'not_found': "😔 Sorry, no song was found or an error occurred.",
+        'main_menu': "🏠 Back to main menu. How can I help you?",
+        'uploading': "⚡ Song found! Uploading the audio file..."
     }
 }
 
@@ -144,6 +146,35 @@ def get_admin_keyboard():
     markup.add(types.InlineKeyboardButton("📊 آمار کاربران", callback_data="admin_stats"))
     markup.add(types.InlineKeyboardButton("📢 ارسال پیام همگانی", callback_data="admin_broadcast"))
     return markup
+
+# ----------------- موتور جستجو و دانلود آهنگ -----------------
+def download_music(query):
+    # تنظیمات ابزار دانلودر برای تبدیل به ام‌پی‌تری کیفیت بالا
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'default_search': 'ytsearch1:', # جستجوی اولین نتیجه در یوتیوب موزیک
+        'outtmpl': 'music_file.%(ext)s', # نام موقت فایل ذخیره شده
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(query, download=True)
+            # گرفتن عنوان واقعی آهنگ
+            if 'entries' in info:
+                title = info['entries'][0]['title']
+            else:
+                title = info.get('title', query)
+            
+            return 'music_file.mp3', title
+    except Exception as e:
+        print(f"Download Error: {e}")
+        return None, None
 
 # ----------------- هندلرهای ربات -----------------
 
@@ -229,15 +260,36 @@ def handle_text(message):
         return
 
     query = message.text
-    bot.send_message(user_id, MESSAGES[lang]['searching'].format(query))
+    # پیام در حال جستجو
+    status_msg = bot.send_message(user_id, MESSAGES[lang]['searching'].format(query))
     
-    try:
-        bot.send_message(user_id, f"🎵 Result for: {query}\n\n[این بخش آماده متصل شدن به سورس دانلودر شماست]")
-    except Exception:
+    # شروع پروسه واقعی دانلود و آپلود آهنگ
+    file_path, song_title = download_music(query)
+    
+    if file_path and os.path.exists(file_path):
+        try:
+            bot.edit_message_text(MESSAGES[lang]['uploading'], user_id, status_msg.message_id)
+            
+            # ارسال فایل صوتی واقعی به تلگرام کاربر
+            with open(file_path, 'rb') as audio:
+                bot.send_audio(
+                    chat_id=user_id, 
+                    audio=audio, 
+                    title=song_title, 
+                    caption=f"🎵 {song_title}\n\n🆔 @{bot.get_me().username}"
+                )
+            
+            # حذف فایل از روی هارد سرور برای پر نشدن حافظه رندر
+            os.remove(file_path)
+            bot.delete_message(user_id, status_msg.message_id)
+            
+        except Exception as e:
+            print(f"Upload Error: {e}")
+            bot.send_message(user_id, MESSAGES[lang]['not_found'])
+    else:
         bot.send_message(user_id, MESSAGES[lang]['not_found'])
 
-# 🚀 روشن کردن سرور وب مجازی و سپس پولینگ ربات
 if __name__ == "__main__":
-    keep_alive() # این تابع سایت فریب‌دهنده را روی پورت رندر روشن می‌کند
+    keep_alive()
     print("Professional Music Bot is running on Web Service...")
     bot.infinity_polling()
